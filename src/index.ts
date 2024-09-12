@@ -127,7 +127,7 @@ app.get('*', handleGetHead)
 // handle both GET and HEAD
 async function handleGetHead(c: Context) {
 	// actual logic goes here
-	const urlResult = await c.env.KV.get(c.get('key'))
+	let urlResult = await c.env.KV.get(c.get('key'))
 
 	if (urlResult == null) {
 		return c.json(
@@ -136,6 +136,15 @@ async function handleGetHead(c: Context) {
 		)
 	} else {
 		const searchParams = new URL(c.req.url).searchParams
+		if (urlResult.startsWith('/')) {
+			// This is probably a relative path to another shortlink. Use the current domain to turn it into a proper URL.
+			if (c.req.path === '/') {
+				urlResult = (c.req.url + urlResult.replace(/^\//, ''))
+			} else {
+				urlResult = c.req.url.replace(c.req.path, '') + urlResult
+			}
+		}
+
 		const newUrl = new URL(urlResult)
 		searchParams.forEach((value, key) => {
 			newUrl.searchParams.append(key, value)
@@ -230,9 +239,9 @@ app.post(ADMIN_PATH, async (c) => {
 })
 
 async function createLink(c: Context) {
-	const url = c.req.header('URL')
+	let url = c.req.header('URL')
 
-	if (url == null || !validateUrl(url)) {
+	if (url == null || !validateUrl(c, url)) {
 		return c.json(
 			{
 				code: '400 Bad Request',
@@ -295,7 +304,12 @@ async function sendToPlausible(c: Context) {
 	await fetch(url, { method: 'POST', headers, body: JSON.stringify(data) })
 }
 
-function validateUrl(url: string) {
+function validateUrl(c: Context, url: string) {
+	if (!URL.canParse(url) && url.startsWith('/')) {
+		// Probably a link to another link. Throw base domain in front and use that.
+		url = c.req.url + url
+	}
+
 	return URL.canParse(url)
 }
 
